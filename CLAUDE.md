@@ -1,4 +1,12 @@
 
+## Git 규칙
+
+- 코드가 변경될 때마다 즉시 커밋 + `git push` 실행
+- 커밋 메시지는 Conventional Commits 형식으로 영어 작성 (`feat:`, `fix:`, `refactor:` 등)
+- 변경 단위가 작아도 묶지 말고 바로 푸시
+
+---
+
 ## 프로젝트 개요
 
 **순수 Python 스크립트**로 Vision AI 파이프라인의 핵심 개념을 빠르게 체득한다.
