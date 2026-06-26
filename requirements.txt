@@ -1,5 +1,7 @@
-opencv-python-headless
-torch
-torchvision
-numpy
-matplotlib
+# Runtime dependencies (pinned for reproducibility).
+# Verified on CPython 3.13 (macOS, CPU) and CPython 3.12.
+opencv-python-headless==4.13.0.92
+numpy==2.5.0
+torch==2.12.1
+torchvision==0.27.1
+matplotlib==3.11.0

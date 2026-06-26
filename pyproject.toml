@@ -1,0 +1,13 @@
+# Tooling configuration only (this repo is a set of runnable scripts, not a
+# distributable package, so there is no [build-system] / [project] table).
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
