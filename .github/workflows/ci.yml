@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # numpy 2.5+ requires Python >= 3.12.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install lint + test dependencies
+        # torch/torchvision are intentionally NOT installed here: CI runs only
+        # lint + the smoke/unit suite, and the model weights (~160 MB) must never
+        # be downloaded in CI. The torch-only test self-skips when torch is absent.
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            opencv-python-headless==4.13.0.92 \
+            numpy==2.5.0 \
+            pytest==9.1.1 \
+            ruff==0.15.20
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Run tests
+        # RUN_MODEL_TESTS is left unset, so the weight-downloading test is skipped.
+        run: pytest -q
