@@ -1,7 +1,38 @@
-venv/
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Virtual environments (project-local, never committed) ---
+.venv/
+venv/
+env/
+
+# --- IDE / OS / local agent config ---
 .idea/
+.vscode/
+.DS_Store
+.claude/
+
+# --- Local planning notes (kept out of the public portfolio) ---
+CLAUDE.md
+
+# --- Captured frames, generated outputs, and large media ---
+# Webcam captures and demo outputs must NEVER be committed.
 data/output/
+**/data/output/
+01_basics/data/
 *.mp4
 *.avi
+*.mov
+
+# --- Still images ---
+# Captured/generated images are ignored by default …
+*.jpg
+*.jpeg
+*.png
+# … except the tiny curated samples used by the README.
+!assets/
+!assets/**
