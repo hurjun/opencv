@@ -205,6 +205,27 @@ The suite (`tests/`) covers:
 
 ## Results
 
+### Detection example
+
+Real Faster R-CNN output on a sample photograph — the public-domain
+Grace Hopper portrait bundled with matplotlib — produced by the actual
+`02_detection/model_loader.py` `detect()` wrapper and annotated with the
+`01_basics/draw_shapes.py` visualization layer (the same path the detection
+drivers use). The green box, the red centre point, and the `person 1.00` label
+are produced by the model; nothing here is hand-placed:
+
+![Faster R-CNN person detection on a sample photo](assets/detection_demo.png)
+
+The model reports a single person at score `0.999`. Regenerate the image with
+the real pipeline (downloads ~160 MB of weights on first run, then caches them;
+runs on CPU, no network needed once cached):
+
+```bash
+python scripts/capture_detection_demo.py   # writes assets/detection_demo.png
+```
+
+### Throughput
+
 Measured locally on CPU (Apple Silicon, macOS); these are honest small-scale
 numbers, not benchmark targets:
 
@@ -218,9 +239,10 @@ numbers, not benchmark targets:
   zero person detections, as expected.
 
 No detection numbers here are fabricated: the per-frame CPU latency above is the
-only model figure measured in this environment, on synthetic frames (so detection
-counts are zero by construction). Real-content detection examples and a GPU FPS
-table are on the roadmap.
+only throughput figure measured in this environment. The real-content example
+shown above is a genuine model render (1 person, score `0.999`); a synthetic
+blank frame still yields zero detections, as expected. A GPU FPS table is on the
+roadmap.
 
 ---
 
@@ -242,7 +264,8 @@ table are on the roadmap.
 - Pretrained, **inference-only**, and **single-class** (person) today.
 - Lighter backbones (`fasterrcnn_mobilenet_v3_large_fpn`) for edge throughput.
 - Polygonal ROIs and per-track dwell-time rules instead of a single rectangle.
-- Real-content detection examples and a CPU-vs-GPU FPS comparison table.
+- A CPU-vs-GPU FPS comparison table (a real-content detection example already
+  ships above).
 
 ---
 
