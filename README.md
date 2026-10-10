@@ -1,27 +1,36 @@
-# Vision Pipeline — OpenCV Preprocessing + Faster R-CNN Person Detection
+# Video Safety Monitor — person detection and keep-out zone alerts on video
 
-A self-study computer-vision project that builds, from scratch and without a
-high-level framework, the core pieces of a real-time perception pipeline:
-OpenCV preprocessing utilities, a torchvision **Faster R-CNN** person-detection
-inference wrapper, a region-of-interest (ROI) intrusion rule engine, background-
-subtraction motion detection, CSV event logging, and an end-to-end driver that
-ties them together (`video → detect → ROI rule → log → annotated output`).
+![CI](https://github.com/hurjun/opencv/actions/workflows/ci.yml/badge.svg)
 
-The goal is to understand *how* each stage works (colour-space and tensor
-conventions, confidence thresholding, throughput tricks, keep-out rules) well
-enough to explain and extend it — not to wrap a turnkey library.
+A small video safety monitor. It finds people in video with a pretrained
+Faster R-CNN (a two-stage object detector). It flags anyone whose box centre
+enters a keep-out zone and logs every event with a timestamp. It uses plain
+OpenCV and torchvision, no detection framework. 20 tests, CI on Python 3.12
+and 3.13.
 
-![Visualization layer demo](assets/sample_visualization.jpg)
+![Faster R-CNN person detection on a sample photo](assets/detection_demo.png)
 
-> The image above is a **synthetic illustration** of the visualization /
-> rule-engine layer (hand-placed boxes, no model involved): red boxes are
-> "intruders" whose centre falls inside the yellow ROI, grey boxes are outside
-> it. It is *not* a real model detection — see [Results](#results) for the
-> actual measured inference behaviour.
+*Real model output on the public-domain Grace Hopper portrait bundled with
+matplotlib. Box, centre point and `person 1.00` label come from the model;
+nothing is hand-placed.*
 
----
+## Result
 
-## Architecture
+Measured locally on CPU (Apple Silicon, macOS). Small-scale numbers, not
+benchmark targets.
+
+- Real detection: 1 person, score `0.999`, on the photo above (Faster R-CNN, ResNet-50 FPN backbone, CPU).
+- Motion + logging path (`--no-detect`, 160×120 synthetic clip): ~270 FPS. The non-detection path is effectively free.
+- Detection path: one 640×480 forward pass takes ~4 s/frame (≈0.2–0.3 FPS) on this CPU. So the detector runs every *N* frames and boxes are reused in between.
+- A synthetic blank frame yields zero person detections, as expected.
+
+Research link: a safety monitor is only as reliable as its perception stage.
+This repo measures that stage's latency budget, keeps a fallback mode
+(`--no-detect`), and writes a timestamped event log. That log is the kind of
+telemetry my fault-diagnosis and failure-prediction work consumes. The repo
+itself does not do fault diagnosis.
+
+## How it works
 
 ```
         video / webcam
@@ -50,225 +59,40 @@ enough to explain and extend it — not to wrap a turnkey library.
       └──────────────────────────────────┘
 ```
 
-The same loop is implemented in [`04_pipeline/run_pipeline.py`](04_pipeline/run_pipeline.py).
+- Preprocessing: resize, crop that never leaves the frame, and resize + pad to a square (letterbox).
+- Detection: BGR frame → RGB tensor → Faster R-CNN → keep COCO dataset class `person` above a score threshold.
+- Rule layer: is the box centre inside the zone? Motion = share of changed pixels (MOG2, a background-subtraction model). Events go to a CSV with UTC timestamps.
+- Pipeline (`04_pipeline/run_pipeline.py`): detect every *N* frames, reuse boxes in between, draw the overlay, write an annotated video.
 
----
-
-## Features
-
-- **Preprocessing primitives** — fixed / scaled / aspect-preserving resize,
-  boundary-clamped ROI crop, and YOLO-style letterboxing.
-- **Visualization layer** — bounding boxes with label tags, centre points,
-  translucent ROI overlays, and an FPS / frame info bar.
-- **Person detection** — torchvision Faster R-CNN ResNet-50 FPN loaded via the
-  modern `Weights` enum API, with BGR→RGB conversion, tensor normalisation,
-  COCO person-class filtering, and score thresholding.
-- **ROI intrusion rule engine** — a centre-point-in-zone geofence check (the
-  same idea as a keep-out / safety zone).
-- **Motion detection** — `BackgroundSubtractorMOG2` foreground-ratio gating.
-- **Event logging** — append-only CSV with UTC timestamps and frame indices.
-- **Throughput trick** — run the detector every *N* frames and reuse the last
-  boxes in between, with per-frame FPS instrumentation.
-
----
-
-## Tech stack
-
-| Area | Choice |
-|---|---|
-| Language | Python 3.12 / 3.13 |
-| Vision | OpenCV (`opencv-python-headless`) |
-| Detection | PyTorch + torchvision (pretrained Faster R-CNN, inference only) |
-| Numerics | NumPy |
-| Tooling | pytest, ruff, GitHub Actions |
-
-Dependencies are pinned in [`requirements.txt`](requirements.txt) (runtime) and
-[`requirements-dev.txt`](requirements-dev.txt) (tests + lint).
-
----
-
-## Project structure
-
-```
-.
-├── 01_basics/                # OpenCV fundamentals
-│   ├── read_video.py         #   read a stream, extract frames to disk (argparse)
-│   ├── draw_shapes.py        #   boxes / labels / ROI overlay / info-bar helpers
-│   └── resize_crop.py        #   resize / crop / letterbox preprocessing
-├── 02_detection/             # object detection
-│   ├── model_loader.py       #   Faster R-CNN loader + detect() person wrapper
-│   ├── detect_image.py       #   single-image detection driver
-│   └── detect_video.py       #   video/webcam detection driver
-├── 03_anomaly/               # rule layer
-│   ├── roi_guard.py          #   ROI intrusion rule engine (pure logic)
-│   ├── motion_detector.py    #   MOG2 motion detector
-│   └── event_logger.py       #   CSV event logger
-├── 04_pipeline/
-│   └── run_pipeline.py       # end-to-end driver tying 01–03 together
-├── tests/                    # pytest smoke + unit tests
-├── assets/                   # tiny committed sample image for this README
-└── requirements*.txt
-```
-
-> The numbered directory names mirror the order the pieces were built. They are
-> not valid Python package names, so the drivers import sibling modules by
-> adding their directories to `sys.path` (see the header of each driver).
-
----
-
-## Installation
+## Run it
 
 ```bash
+# run from the repository root
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt    # add -r requirements-dev.txt for tests/lint
+pip install -r requirements.txt
+python 04_pipeline/run_pipeline.py --source clip.mp4 --roi 200 150 450 380   # downloads ~160 MB of weights on first run
+python 04_pipeline/run_pipeline.py --source clip.mp4 --no-detect             # motion only, no torch
+pip install -r requirements-dev.txt && pytest                                 # tests
 ```
 
-`torch`/`torchvision` are only needed for the detection drivers; the
-preprocessing, motion, ROI, and logging code runs without them.
+Outputs (frames, annotated video, `events.csv`) go to `data/output/`, which is
+git-ignored.
 
----
+## Limitations
 
-## Usage
+- Pretrained, inference-only, and single-class (person) today.
+- The detector is slow on CPU (~4 s/frame at 640×480). A real deployment wants a GPU or a lighter backbone.
+- The throughput numbers above have no saved log or benchmark script in the repo yet.
+- Not implemented: lighter backbone (`fasterrcnn_mobilenet_v3_large_fpn`), polygonal ROIs, per-track dwell-time rules, CPU-vs-GPU FPS table.
 
-Run everything **from the repository root**.
+## More
 
-```bash
-# Day 1 — preprocessing & drawing demos (synthetic images, no model)
-python 01_basics/resize_crop.py
-python 01_basics/draw_shapes.py
-python 01_basics/read_video.py --source 0 --every 30          # 0 = webcam
-
-# Day 2 — detection (downloads ~160 MB of weights on first run)
-python 02_detection/detect_image.py path/to/image.jpg
-python 02_detection/detect_video.py --source 0 --max-frames 300
-
-# Day 4 — full pipeline
-python 04_pipeline/run_pipeline.py --source clip.mp4 --roi 200 150 450 380
-python 04_pipeline/run_pipeline.py --source clip.mp4 --no-detect   # motion only, no torch
-```
-
-Outputs (frames, annotated video, `events.csv`) are written to `data/output/`,
-which is git-ignored so captured imagery is never committed.
-
----
-
-## How it works
-
-**Preprocessing (`01_basics/resize_crop.py`).** Detectors expect a fixed input
-size, and downscaling trades a little accuracy for speed. `crop_roi` clamps
-coordinates to the frame so an out-of-bounds box never raises; `letterbox`
-resizes by the longest side and zero-pads to a square, preserving aspect ratio
-(the standard YOLO-style input transform).
-
-**Detection (`02_detection/model_loader.py`).** OpenCV frames are BGR `uint8`;
-the model wants an RGB `float` tensor in `[0, 1]` shaped `(C, H, W)`. `preprocess`
-does the `cvtColor` + `to_tensor` conversion, and `detect` runs the model under
-`torch.no_grad()`, keeps only COCO label `1` (person) above a score threshold,
-and returns a tidy `[{"bbox": [x1, y1, x2, y2], "score": ...}]` schema.
-
-**Rule layer (`03_anomaly/`).** `roi_guard` flags a detection when its box
-*centre* lies inside the ROI rectangle — a simple, stable keep-out check.
-`motion_detector` wraps MOG2 and reports the foreground-pixel ratio per frame.
-`event_logger` appends timestamped rows to a CSV.
-
-**Pipeline (`04_pipeline/run_pipeline.py`).** Captures frames, runs the detector
-every *N* frames (reusing boxes in between for throughput), checks ROI intrusion,
-scores motion, logs events, draws the overlay, and writes an annotated video.
-`--no-detect` skips the detector entirely (and never imports torch) so the
-motion + logging path runs anywhere.
-
----
-
-## Testing
-
-```bash
-pip install -r requirements-dev.txt
-ruff check .
-pytest
-```
-
-The suite (`tests/`) covers:
-
-- **Preprocessing smoke tests** — a synthetic image through every resize / crop /
-  letterbox / draw op, asserting output shapes and padding.
-- **ROI rule engine** — centre computation, inside/outside/edge cases, and that
-  `check_intrusion` filters without mutating its input.
-- **Event logger** — header-once-then-append behaviour and row contents.
-- **Motion detector** — static frames report no motion; a moving block does.
-- **Compile guard** — every source file is byte-compiled, which would have
-  caught the original digit-prefixed-import `SyntaxError`.
-- **Detection** — `preprocess` tensor shape (no weights). The full inference
-  test is guarded behind `RUN_MODEL_TESTS=1` so it never downloads weights in CI.
-
----
-
-## Results
-
-### Detection example
-
-Real Faster R-CNN output on a sample photograph — the public-domain
-Grace Hopper portrait bundled with matplotlib — produced by the actual
-`02_detection/model_loader.py` `detect()` wrapper and annotated with the
-`01_basics/draw_shapes.py` visualization layer (the same path the detection
-drivers use). The green box, the red centre point, and the `person 1.00` label
-are produced by the model; nothing here is hand-placed:
-
-![Faster R-CNN person detection on a sample photo](assets/detection_demo.png)
-
-The model reports a single person at score `0.999`. Regenerate the image with
-the real pipeline (downloads ~160 MB of weights on first run, then caches them;
-runs on CPU, no network needed once cached):
-
-```bash
-python scripts/capture_detection_demo.py   # writes assets/detection_demo.png
-```
-
-### Throughput
-
-Measured locally on CPU (Apple Silicon, macOS); these are honest small-scale
-numbers, not benchmark targets:
-
-- **Pipeline, motion + logging only** (`--no-detect`, 160×120 synthetic clip):
-  ~270 FPS — confirms the non-detection path is effectively free.
-- **Detection** (Faster R-CNN ResNet-50 FPN, CPU): the weights download and the
-  full `detect()` path were exercised end-to-end. A single 640×480 forward pass
-  takes **~4 s/frame (≈0.2–0.3 FPS)** on this CPU — which is exactly why the
-  drivers detect every *N* frames rather than every frame, and why a real
-  deployment wants a GPU or a lighter backbone. A synthetic blank frame yields
-  zero person detections, as expected.
-
-No detection numbers here are fabricated: the per-frame CPU latency above is the
-only throughput figure measured in this environment. The real-content example
-shown above is a genuine model render (1 person, score `0.999`); a synthetic
-blank frame still yields zero detections, as expected. A GPU FPS table is on the
-roadmap.
-
----
-
-## Design decisions & what I learned
-
-- **Channel/tensor conventions matter.** The BGR→RGB and HWC→CHW `/255` steps are
-  the most common silent-failure source when bridging OpenCV and PyTorch.
-- **Decouple the rule layer from the model.** ROI/motion/logging are pure,
-  model-free logic, which keeps them fast, unit-testable, and swappable.
-- **Throughput vs. latency.** Running a heavy detector every frame is wasteful;
-  detecting every *N* frames and reusing boxes is a cheap, effective trade-off.
-- **Reproducibility.** Pinned dependencies, a project-local virtualenv, lint, and
-  a CI smoke suite keep the project runnable for anyone who clones it.
-
----
-
-## Roadmap & limitations
-
-- Pretrained, **inference-only**, and **single-class** (person) today.
-- Lighter backbones (`fasterrcnn_mobilenet_v3_large_fpn`) for edge throughput.
-- Polygonal ROIs and per-track dwell-time rules instead of a single rectangle.
-- A CPU-vs-GPU FPS comparison table (a real-content detection example already
-  ships above).
-
----
+- [Details](docs/DETAILS.md): features, tech stack, layout, module notes, tests, throughput notes, synthetic demo image, design notes, roadmap.
+- Pinned dependencies: [`requirements.txt`](requirements.txt) (runtime), [`requirements-dev.txt`](requirements-dev.txt) (tests + lint).
 
 ## License
 
 Released under the [MIT License](LICENSE).
+
+— Jun Hur · [portfolio](https://hurjun.github.io) · [KCC 2024 paper](https://hurjun.github.io/asset/kcc2024-kiise-nursing-record-paper.pdf) · hurjun96@gmail.com
